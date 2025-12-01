@@ -1,0 +1,31 @@
+{
+    "hyperopt": "MultiIndicatorStrategy",
+    "hyperopt_loss": "SharpeHyperOptLoss",
+    "hyperopt_random_state": 42,
+    "hyperopt_min_trades": 10,
+    "hyperopt_epochs": 100,
+    "hyperopt_jobs": -1,
+    "hyperopt_space": "all",
+    "hyperopt_list_best": 25,
+    "hyperopt_show_index": -1,
+    
+    "timerange": "20231101-20240229",
+    
+    "hyperopt_params": {
+        "buy": {
+            "enabled": true
+        },
+        "sell": {
+            "enabled": true
+        },
+        "roi": {
+            "enabled": false
+        },
+        "stoploss": {
+            "enabled": false
+        },
+        "trailing": {
+            "enabled": false
+        }
+    }
+}
