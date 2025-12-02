@@ -1,18 +1,21 @@
 """
 Custom Indicators Module for Freqtrade Strategy
 Contains all indicator calculations for multi-timeframe analysis
+FIXED: Proper resampling compatible with Freqtrade's dataframe structure
 """
 
 import pandas as pd
 import numpy as np
 import talib
-from ta.trend import SMAIndicator
 from typing import Dict
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def sumit_ma_signals(df: pd.DataFrame) -> pd.DataFrame:
     """
-    NEW SUMIT MA SIGNAL LOGIC
+    SUMIT MA SIGNAL LOGIC
     
     Counts BUY and SELL signals based on price position relative to 18 MAs
     (excludes MA 3 High and MA 3 Low)
@@ -21,6 +24,8 @@ def sumit_ma_signals(df: pd.DataFrame) -> pd.DataFrame:
     SELL Signal: Price < MA (counts 0-18)
     
     Returns DataFrame with buy_signal_count, sell_signal_count, and their MAs
+    
+    FIXED: Proper .loc indexing to avoid chained assignment warnings
     """
     
     # Calculate OHLC/4 (typical price)
@@ -34,28 +39,24 @@ def sumit_ma_signals(df: pd.DataFrame) -> pd.DataFrame:
     for period in ma_periods:
         mas[f'MA_{period}'] = talib.SMA(ohlc4, timeperiod=period)
     
-    # Create result DataFrame
+    # Create result DataFrame with proper initialization
     result = pd.DataFrame(index=df.index)
     result['buy_signal_count'] = 0
     result['sell_signal_count'] = 0
     
-    # Calculate signals for each point
-    for idx in range(len(df)):
-        current_price = df['close'].iloc[idx]
-        buy_count = 0
-        sell_count = 0
+    # Vectorized calculation instead of row-by-row loop for better performance
+    current_price = df['close'].values
+    
+    for ma_name, ma_series in mas.items():
+        ma_values = ma_series.values
         
-        for ma_name, ma_series in mas.items():
-            ma_value = ma_series.iloc[idx]
-            
-            if pd.notna(ma_value):
-                if current_price > ma_value:
-                    buy_count += 1
-                elif current_price < ma_value:
-                    sell_count += 1
+        # Count where price > MA (buy signal)
+        buy_mask = (current_price > ma_values) & pd.notna(ma_values)
+        result.loc[buy_mask, 'buy_signal_count'] += 1
         
-        result['buy_signal_count'].iloc[idx] = buy_count
-        result['sell_signal_count'].iloc[idx] = sell_count
+        # Count where price < MA (sell signal)
+        sell_mask = (current_price < ma_values) & pd.notna(ma_values)
+        result.loc[sell_mask, 'sell_signal_count'] += 1
     
     # Calculate MA3 and MA11 of signal counts
     result['buy_signal_ma3'] = talib.SMA(result['buy_signal_count'], timeperiod=3)
@@ -70,7 +71,13 @@ def compute_supertrend(df: pd.DataFrame, period: int, multiplier: float) -> tupl
     """
     Calculate SuperTrend indicator
     Returns: (supertrend, direction)
+    
+    FIXED: Better initialization and validation
     """
+    if len(df) < period:
+        logger.warning(f"Not enough data for SuperTrend period {period}")
+        return pd.Series(index=df.index, dtype=float), pd.Series(index=df.index, dtype=int)
+    
     hl2 = (df['high'] + df['low']) / 2
     atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=period)
     
@@ -79,6 +86,10 @@ def compute_supertrend(df: pd.DataFrame, period: int, multiplier: float) -> tupl
     
     supertrend = pd.Series(index=df.index, dtype=float)
     direction = pd.Series(index=df.index, dtype=int)
+    
+    # Initialize first valid values
+    supertrend.iloc[:period] = np.nan
+    direction.iloc[:period] = 0
     
     for i in range(period, len(df)):
         if i == period:
@@ -147,10 +158,42 @@ def multi_supertrend(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    """
+    Helper function to properly resample dataframe to different interval
+    Works with Freqtrade's dataframe structure (uses 'date' column)
+    """
+    try:
+        # Freqtrade uses 'date' column with RangeIndex
+        # Set 'date' as index temporarily for resampling
+        if 'date' in df.columns:
+            df_temp = df.set_index('date')
+        else:
+            # Fallback: use existing index if it's already datetime
+            df_temp = df
+        
+        df_resampled = df_temp.resample(interval).agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum' if 'volume' in df.columns else 'first'
+        }).dropna()
+        
+        # Reset index to match original structure
+        df_resampled = df_resampled.reset_index()
+        
+        return df_resampled
+    except Exception as e:
+        logger.error(f"Resampling to {interval} failed: {e}")
+        return df.copy()
+
+
 def compute_rsi_multi_tf(df_5m: pd.DataFrame, rsi_period: int = 14, sma_period: int = 7) -> Dict:
     """
-    Compute RSI for multiple timeframes (1m, 5m, 1h) from 5m data
-    Note: For proper 1m RSI, you'd need 1m data. This uses 5m as base.
+    Compute RSI for multiple timeframes using proper resampling
+    
+    FIXED: Simplified resampling that works with Freqtrade's structure
     """
     
     def calc_rsi(df):
@@ -163,25 +206,21 @@ def compute_rsi_multi_tf(df_5m: pd.DataFrame, rsi_period: int = 14, sma_period: 
     # 5-minute RSI (base timeframe)
     df_5m_calc = calc_rsi(df_5m.copy())
     
-    # 1-hour resampling - handle with or without 'date' column
-    if 'date' in df_5m.columns:
-        df_5m_indexed = df_5m.set_index('date')
-    else:
-        df_5m_indexed = df_5m.copy()
-    
+    # 1-hour resampling - simplified approach
     try:
-        df_1h = df_5m_indexed.resample("1h").agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last'
-        }).dropna()
-        df_1h = calc_rsi(df_1h)
+        df_1h = resample_to_interval(df_5m, "1h")
+        
+        if len(df_1h) > rsi_period:
+            df_1h = calc_rsi(df_1h)
+        else:
+            logger.warning("Not enough 1h data after resampling, using 5m as fallback")
+            df_1h = df_5m_calc.copy()
+            
     except Exception as e:
-        # If resampling fails, use 5m data as fallback
+        logger.warning(f"1h resampling failed: {e}, using 5m data as fallback")
         df_1h = df_5m_calc.copy()
     
-    # For 1m, we'll use 5m data (limitation of working with 5m timeframe)
+    # For 1m, use 5m data (limitation of working with 5m timeframe)
     df_1m = df_5m_calc.copy()
     
     return {
@@ -193,7 +232,9 @@ def compute_rsi_multi_tf(df_5m: pd.DataFrame, rsi_period: int = 14, sma_period: 
 
 def compute_aroon_multi_tf(df_5m: pd.DataFrame, period: int = 14) -> Dict:
     """
-    Computes Aroon Up/Down/Osc for multiple timeframes from 5m data
+    Computes Aroon Up/Down/Osc for multiple timeframes
+    
+    FIXED: Simplified resampling approach
     """
     
     def calc_aroon(df):
@@ -209,24 +250,19 @@ def compute_aroon_multi_tf(df_5m: pd.DataFrame, period: int = 14) -> Dict:
     # 5-minute Aroon
     df_5m_calc = calc_aroon(df_5m.copy())
     
-    # 1-hour resampling - handle with or without 'date' column
-    if 'date' in df_5m.columns:
-        df_5m_indexed = df_5m.set_index('date')
-    else:
-        df_5m_indexed = df_5m.copy()
-    
+    # 1-hour resampling
     try:
-        df_1h = df_5m_indexed.resample("1h").agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last"
-        }).dropna()
-        df_1h = calc_aroon(df_1h)
+        df_1h = resample_to_interval(df_5m, "1h")
+        
+        if len(df_1h) > period:
+            df_1h = calc_aroon(df_1h)
+        else:
+            df_1h = df_5m_calc.copy()
+            
     except Exception as e:
+        logger.warning(f"Aroon 1h resampling failed: {e}")
         df_1h = df_5m_calc.copy()
     
-    # Use 5m as 1m proxy
     df_1m = df_5m_calc.copy()
     
     return {
@@ -238,7 +274,9 @@ def compute_aroon_multi_tf(df_5m: pd.DataFrame, period: int = 14) -> Dict:
 
 def compute_adx_multi_tf(df_5m: pd.DataFrame, adx_period: int = 14) -> Dict:
     """
-    Computes ADX, +DI, -DI for multiple timeframes from 5m data
+    Computes ADX, +DI, -DI for multiple timeframes
+    
+    FIXED: Simplified resampling approach
     """
     
     def calc_adx(df):
@@ -251,24 +289,19 @@ def compute_adx_multi_tf(df_5m: pd.DataFrame, adx_period: int = 14) -> Dict:
     # 5-minute ADX
     df_5m_calc = calc_adx(df_5m.copy())
     
-    # 1-hour resampling - handle with or without 'date' column
-    if 'date' in df_5m.columns:
-        df_5m_indexed = df_5m.set_index('date')
-    else:
-        df_5m_indexed = df_5m.copy()
-    
+    # 1-hour resampling
     try:
-        df_1h = df_5m_indexed.resample("1h").agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last"
-        }).dropna()
-        df_1h = calc_adx(df_1h)
+        df_1h = resample_to_interval(df_5m, "1h")
+        
+        if len(df_1h) > adx_period:
+            df_1h = calc_adx(df_1h)
+        else:
+            df_1h = df_5m_calc.copy()
+            
     except Exception as e:
+        logger.warning(f"ADX 1h resampling failed: {e}")
         df_1h = df_5m_calc.copy()
     
-    # Use 5m as 1m proxy
     df_1m = df_5m_calc.copy()
     
     return {
@@ -280,7 +313,9 @@ def compute_adx_multi_tf(df_5m: pd.DataFrame, adx_period: int = 14) -> Dict:
 
 def compute_macd_multi_tf(df_5m: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict:
     """
-    Computes MACD, Signal, Histogram for multiple timeframes from 5m data
+    Computes MACD, Signal, Histogram for multiple timeframes
+    
+    FIXED: Simplified resampling approach
     """
     
     def calc_macd(df):
@@ -296,24 +331,19 @@ def compute_macd_multi_tf(df_5m: pd.DataFrame, fast: int = 12, slow: int = 26, s
     # 5-minute MACD
     df_5m_calc = calc_macd(df_5m.copy())
     
-    # 1-hour MACD - handle with or without 'date' column
-    if 'date' in df_5m.columns:
-        df_5m_indexed = df_5m.set_index('date')
-    else:
-        df_5m_indexed = df_5m.copy()
-    
+    # 1-hour MACD
     try:
-        df_1h = df_5m_indexed.resample("1h").agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last"
-        }).dropna()
-        df_1h = calc_macd(df_1h)
+        df_1h = resample_to_interval(df_5m, "1h")
+        
+        if len(df_1h) > slow:
+            df_1h = calc_macd(df_1h)
+        else:
+            df_1h = df_5m_calc.copy()
+            
     except Exception as e:
+        logger.warning(f"MACD 1h resampling failed: {e}")
         df_1h = df_5m_calc.copy()
     
-    # Use 5m as 1m proxy
     df_1m = df_5m_calc.copy()
     
     return {
