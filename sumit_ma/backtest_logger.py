@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Backtesting Logger for Multi-Indicator Strategy
 Logs detailed trade information with entry/exit indicators to CSV
@@ -71,10 +72,10 @@ class BacktestLogger:
             self.csv_writer = csv.DictWriter(self.file_handle, fieldnames=fieldnames)
             self.csv_writer.writeheader()
             
-            logger.info(f"✅ Backtest logger initialized: {self.csv_file}")
+            logger.info(f" Backtest logger initialized: {self.csv_file}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize backtest logger: {e}")
+            logger.error(f" Failed to initialize backtest logger: {e}")
             self.csv_writer = None
     
     def log_entry(self, pair: str, entry_time: datetime, entry_price: float, 
@@ -171,7 +172,7 @@ class BacktestLogger:
             # Clean up entry data
             del self.trades_in_progress[pair]
             
-            logger.debug(f"✅ Trade logged: {pair} | Profit: {profit_ratio*100:.2f}%")
+            logger.debug(f"::Trade logged: {pair} | Profit: {profit_ratio*100:.2f}%")
             
         except Exception as e:
             logger.error(f"Error logging exit for {pair}: {e}")
@@ -181,7 +182,7 @@ class BacktestLogger:
         try:
             if self.file_handle:
                 self.file_handle.close()
-                logger.info(f"✅ Backtest log saved: {self.csv_file}")
+                logger.info(f"::Backtest log saved: {self.csv_file}")
         except Exception as e:
             logger.error(f"Error closing backtest logger: {e}")
     

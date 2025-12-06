@@ -1,0 +1,52 @@
+{
+  "strategy_name": "MultiIndicatorStrategy",
+  "params": {
+    "roi": {
+      "0": 0.03,
+      "60": 0.025,
+      "180": 0.02,
+      "360": 0.015
+    },
+    "stoploss": {
+      "stoploss": -0.035
+    },
+    "trailing": {
+      "trailing_stop": true,
+      "trailing_stop_positive": 0.01,
+      "trailing_stop_positive_offset": 0.04,
+      "trailing_only_offset_is_reached": true
+    },
+    "max_open_trades": {
+      "max_open_trades": 1
+    },
+    "buy": {
+      "enable_csv_logging": true,
+      "enable_notifications": false,
+      "adx_threshold": 22,
+      "aroon_osc_buy": 62,
+      "aroon_osc_sell": -66,
+      "buy_ma_cross_threshold": 10,
+      "require_all_conditions": true,
+      "rsi_1h_buy_threshold": 53,
+      "rsi_1h_sell_threshold": 68,
+      "rsi_5m_buy_threshold": 45,
+      "rsi_5m_sell_threshold": 65,
+      "sell_ma_cross_threshold": 6,
+      "st_min_aligned": 3,
+      "use_supertrend": false
+    },
+    "sell": {
+      "enable_csv_logging": true,
+      "require_all_conditions_short": false,
+      "short_adx_threshold": 24,
+      "short_aroon_osc": -53,
+      "short_ma_cross_threshold": 15,
+      "short_rsi_1h_threshold": 58,
+      "short_rsi_5m_threshold": 57,
+      "short_st_min_aligned": 3,
+      "use_supertrend_short": true
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2025-12-04 06:42:54.966143+00:00"
+}

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Custom Indicators Module for Freqtrade Strategy
 Contains all indicator calculations for multi-timeframe analysis
@@ -60,7 +61,7 @@ def sumit_ma_signals(df: pd.DataFrame) -> pd.DataFrame:
     
     # Calculate MA3 and MA11 of signal counts
     result['buy_signal_ma3'] = talib.SMA(result['buy_signal_count'], timeperiod=3)
-    result['buy_signal_ma11'] = talib.SMA(result['buy_signal_count'], timeperiod=11)
+    result['buy_signal_ma11'] = talib.SMA(result['buy_signal_count'], timeperiod=31)
     result['sell_signal_ma3'] = talib.SMA(result['sell_signal_count'], timeperiod=3)
     result['sell_signal_ma11'] = talib.SMA(result['sell_signal_count'], timeperiod=11)
     
@@ -189,7 +190,7 @@ def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
         return df.copy()
 
 
-def compute_rsi_multi_tf(df_5m: pd.DataFrame, rsi_period: int = 14, sma_period: int = 7) -> Dict:
+def compute_rsi_multi_tf(df_5m: pd.DataFrame, rsi_period: int = 11, sma_period: int = 7) -> Dict:
     """
     Compute RSI for multiple timeframes using proper resampling
     

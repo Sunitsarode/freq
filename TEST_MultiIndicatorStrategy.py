@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Comprehensive test script for Multi-Indicator Strategy
 IMPROVED: Better validation, error checking, and reporting
@@ -42,7 +44,7 @@ def create_realistic_ohlc_data(periods=500, base_price=50000, volatility=0.02):
 
 def validate_indicators(df, indicator_cols):
     """Validate indicator quality"""
-    print("\n🔍 Validating Indicator Quality...")
+    print("\n* Validating Indicator Quality...")
     
     issues = []
     
@@ -55,26 +57,26 @@ def validate_indicators(df, indicator_cols):
         if nan_count > 0:
             pct = (nan_count / len(df)) * 100
             if pct > 10:  # More than 10% NaN is problematic
-                issues.append(f"  ❌ {col}: {nan_count} NaNs ({pct:.1f}%)")
+                issues.append(f"  !! {col}: {nan_count} NaNs ({pct:.1f}%)")
             else:
-                print(f"  ⚠️  {col}: {nan_count} NaNs ({pct:.1f}%) - acceptable")
+                print(f"  *  {col}: {nan_count} NaNs ({pct:.1f}%) - acceptable")
         
         # Check for infinite values
         inf_count = np.isinf(df[col].replace([np.inf, -np.inf], np.nan)).sum()
         if inf_count > 0:
-            issues.append(f"  ❌ {col}: {inf_count} infinite values")
+            issues.append(f"  !! {col}: {inf_count} infinite values")
         
         # Check for constant values (no variation)
         if df[col].nunique() == 1:
-            issues.append(f"  ❌ {col}: constant value (no variation)")
+            issues.append(f"  !! {col}: constant value (no variation)")
     
     if issues:
-        print("\n❌ ISSUES FOUND:")
+        print("\n!! ISSUES FOUND:")
         for issue in issues:
             print(issue)
         return False
     else:
-        print("  ✅ All indicators look good!")
+        print("  ::All indicators look good!")
         return True
 
 
@@ -94,28 +96,28 @@ def test_strategy():
     }
     
     # Initialize strategy
-    print("\n📦 Initializing Strategy...")
+    print("\n... Initializing Strategy...")
     try:
         strategy = MultiIndicatorStrategy(config)
-        print(f"  ✅ Strategy loaded: {strategy.__class__.__name__}")
+        print(f"  ::Strategy loaded: {strategy.__class__.__name__}")
         print(f"     Timeframe: {strategy.timeframe}")
         print(f"     Can Short: {strategy.can_short}")
         print(f"     Startup Candles: {strategy.startup_candle_count}")
         print(f"     Max Open Trades: {strategy.max_open_trades.value if hasattr(strategy.max_open_trades, 'value') else strategy.max_open_trades}")
     except Exception as e:
-        print(f"  ❌ Failed to load strategy: {e}")
+        print(f"  !! Failed to load strategy: {e}")
         return False
     
     # Create test data
-    print("\n📊 Creating Realistic Test Data...")
+    print("\n* Creating Realistic Test Data...")
     try:
         df = create_realistic_ohlc_data(periods=500, base_price=50000, volatility=0.02)
-        print(f"  ✅ Created {len(df)} candles")
+        print(f"  ::Created {len(df)} candles")
         print(f"     Date range: {df.index[0]} to {df.index[-1]}")
         print(f"     Price range: ${df['close'].min():.2f} - ${df['close'].max():.2f}")
         print(f"     Index type: {type(df.index).__name__}")
     except Exception as e:
-        print(f"  ❌ Failed to create data: {e}")
+        print(f"  !! Failed to create data: {e}")
         return False
     
     # Test populate_indicators
@@ -126,7 +128,7 @@ def test_strategy():
         indicator_cols = [col for col in df_with_indicators.columns 
                          if col not in ['open', 'high', 'low', 'close', 'volume']]
         
-        print(f"  ✅ Indicators calculated successfully")
+        print(f"  ::Indicators calculated successfully")
         print(f"     Added {len(indicator_cols)} indicator columns")
         
         # Show key indicators
@@ -140,65 +142,65 @@ def test_strategy():
         
         # Validate indicators
         if not validate_indicators(df_with_indicators, indicator_cols):
-            print("  ⚠️  Some indicators have issues, but continuing...")
+            print("  *  Some indicators have issues, but continuing...")
         
         df = df_with_indicators
         
     except Exception as e:
-        print(f"  ❌ Error in populate_indicators: {e}")
+        print(f"  !! Error in populate_indicators: {e}")
         import traceback
         traceback.print_exc()
         return False
     
     # Test populate_entry_trend
-    print("\n📈 Testing populate_entry_trend...")
+    print("\n Testing populate_entry_trend...")
     try:
         df = strategy.populate_entry_trend(df, {'pair': 'BTC/USDT:USDT'})
         
         long_entries = df['enter_long'].sum()
         short_entries = df['enter_short'].sum() if 'enter_short' in df.columns else 0
         
-        print(f"  ✅ Entry signals calculated")
-        print(f"     Long entries: {long_entries} ({long_entries/len(df)*100:.1f}%)")
-        print(f"     Short entries: {short_entries} ({short_entries/len(df)*100:.1f}%)")
+        print(f"::Entry signals calculated")
+        print(f"Long entries: {long_entries} ({long_entries/len(df)*100:.1f}%)")
+        print(f"Short entries: {short_entries} ({short_entries/len(df)*100:.1f}%)")
         
         if long_entries == 0 and short_entries == 0:
-            print(f"  ⚠️  WARNING: No entry signals generated!")
-            print(f"     This might indicate overly strict conditions")
+            print(f"WARNING: No entry signals generated!")
+            print(f"This might indicate overly strict conditions")
         
         # Show where signals occurred
         if long_entries > 0:
             entry_indices = df[df['enter_long'] == 1].index[:3]
-            print(f"\n     First 3 long entry timestamps:")
+            print(f"\n First 3 long entry timestamps:")
             for idx in entry_indices:
                 print(f"       {idx}")
         
     except Exception as e:
-        print(f"  ❌ Error in populate_entry_trend: {e}")
+        print(f"  !! Error in populate_entry_trend: {e}")
         import traceback
         traceback.print_exc()
         return False
     
     # Test populate_exit_trend
-    print("\n📉 Testing populate_exit_trend...")
+    print("\n Testing populate_exit_trend...")
     try:
         df = strategy.populate_exit_trend(df, {'pair': 'BTC/USDT:USDT'})
         
         long_exits = df['exit_long'].sum()
         short_exits = df['exit_short'].sum() if 'exit_short' in df.columns else 0
         
-        print(f"  ✅ Exit signals calculated")
-        print(f"     Long exits: {long_exits} ({long_exits/len(df)*100:.1f}%)")
-        print(f"     Short exits: {short_exits} ({short_exits/len(df)*100:.1f}%)")
+        print(f"::Exit signals calculated")
+        print(f"Long exits: {long_exits} ({long_exits/len(df)*100:.1f}%)")
+        print(f"Short exits: {short_exits} ({short_exits/len(df)*100:.1f}%)")
         
     except Exception as e:
-        print(f"  ❌ Error in populate_exit_trend: {e}")
+        print(f"  !! Error in populate_exit_trend: {e}")
         import traceback
         traceback.print_exc()
         return False
     
     # Data type validation
-    print("\n🔍 Validating Data Types...")
+    print("\n Validating Data Types...")
     print(f"  enter_long dtype: {df['enter_long'].dtype}")
     print(f"  exit_long dtype: {df['exit_long'].dtype}")
     print(f"  Index dtype: {df.index.dtype}")
@@ -207,18 +209,18 @@ def test_strategy():
     datetime_cols = [col for col in df.columns 
                     if 'datetime' in str(df[col].dtype).lower()]
     if datetime_cols:
-        print(f"  ⚠️  Found datetime columns: {datetime_cols}")
+        print(f"  *  Found datetime columns: {datetime_cols}")
     else:
-        print(f"  ✅ No datetime columns in dataframe")
+        print(f"  ::No datetime columns in dataframe")
     
     # Sample data display
-    print("\n📋 Sample Data (last 5 rows):")
+    print("\n* Sample Data (last 5 rows):")
     sample_cols = ['close', 'buy_signal_count', 'rsi_5m', 'adx_5m', 'enter_long', 'exit_long']
     available_cols = [col for col in sample_cols if col in df.columns]
     print(df[available_cols].tail().to_string())
     
     # Performance stats
-    print("\n📊 Signal Statistics:")
+    print("\n* Signal Statistics:")
     total_candles = len(df)
     long_entry_rate = (df['enter_long'].sum() / total_candles * 100)
     long_exit_rate = (df['exit_long'].sum() / total_candles * 100)
@@ -235,7 +237,7 @@ def test_strategy():
     
     # Final summary
     print("\n" + "=" * 70)
-    print("✅ ALL TESTS PASSED SUCCESSFULLY!")
+    print("::ALL TESTS PASSED SUCCESSFULLY!")
     print("=" * 70)
     print("\nNext Steps:")
     print("1. Run backtesting with real data")

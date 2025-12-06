@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Multi-Indicator Strategy for Freqtrade
 UPDATED: Added backtesting logger integration
@@ -44,14 +46,27 @@ class MultiIndicatorStrategy(IStrategy):
     """
     
     # Strategy settings
-    timeframe = '5m'
-    can_short = True
+    timeframe = '1m'
+    can_short = False
     startup_candle_count = 320
     process_only_new_candles = True
     
-    # Risk management
-    stoploss = -0.02
+    minimal_roi = {
+    "0": 0.03,    # 5% profit anytime
+    "60": 0.025,   # 3% after 1 hour
+    "180": 0.02,  # 2% after 3 hours
+    "360": 0.015   # 1% after 6 hours
+}
     
+    # Risk management
+    stoploss = -0.035
+    use_custom_stoploss = True
+
+    def custom_stoploss(self, pair: str, trade, current_time: datetime,
+                   current_rate: float, current_profit: float, **kwargs) -> float:
+        if current_profit >= 0.03:
+            return 0.015  # Lock 1.5% profit
+        return -0.035
     # Trading mode
     trading_mode = 'futures'
     
@@ -64,34 +79,48 @@ class MultiIndicatorStrategy(IStrategy):
     max_open_trades = IntParameter(1, 5, default=3, space='buy', optimize=True)
     
     # Optional features
-    enable_notifications = BooleanParameter(default=False, space='buy', optimize=False)
-    enable_csv_logging = BooleanParameter(default=False, space='buy', optimize=False)
+    enable_notifications =  BooleanParameter(default=False, space='buy', optimize=False) # OFF
+   # enable_csv_logging =  BooleanParameter(default=True, space='buy', optimize=False) 
+    enable_csv_logging = BooleanParameter(default=False, space='buy', optimize=False) #OFF
+
     ntfy_topic = 'freqtrade_alerts'
     
-    # Hyperopt parameters - Sumit MA Signals
-    buy_ma_cross_threshold = IntParameter(5, 15, default=10, space='buy', optimize=True)
-    sell_ma_cross_threshold = IntParameter(5, 15, default=10, space='buy', optimize=True)
-    
+   # Hyperopt parameters - Sumit MA Signals
+    buy_ma_cross_threshold = IntParameter(10, 15, default=12, space='buy', optimize=True)
+    sell_ma_cross_threshold = IntParameter(5, 10, default=5, space='buy', optimize=True)
+
     # Hyperopt parameters - SuperTrend
-    use_supertrend = BooleanParameter(default=True, space='buy', optimize=True)
-    st_min_aligned = IntParameter(1, 3, default=2, space='buy', optimize=True)
-    
+    use_supertrend = BooleanParameter(default=False, space='buy', optimize=True)  # Changed to False
+    st_min_aligned = IntParameter(2, 3, default=3, space='buy', optimize=True)
+
     # Hyperopt parameters - RSI
-    rsi_5m_buy_threshold = IntParameter(25, 45, default=35, space='buy', optimize=True)
-    rsi_5m_sell_threshold = IntParameter(55, 75, default=65, space='buy', optimize=True)
-    rsi_1h_buy_threshold = IntParameter(30, 50, default=40, space='buy', optimize=True)
-    rsi_1h_sell_threshold = IntParameter(50, 70, default=60, space='buy', optimize=True)
-    
+    rsi_5m_buy_threshold = IntParameter(35, 45, default=40, space='buy', optimize=True)
+    rsi_5m_sell_threshold = IntParameter(60, 75, default=67, space='buy', optimize=True)
+    rsi_1h_buy_threshold = IntParameter(40, 60, default=54, space='buy', optimize=True)  # Increased
+    rsi_1h_sell_threshold = IntParameter(55, 70, default=61, space='buy', optimize=True)
+
     # Hyperopt parameters - ADX
-    adx_threshold = IntParameter(15, 30, default=20, space='buy', optimize=True)
-    
+    adx_threshold = IntParameter(20, 30, default=22, space='buy', optimize=True)  # Lowered
+
     # Hyperopt parameters - Aroon
-    aroon_osc_buy = IntParameter(30, 70, default=50, space='buy', optimize=True)
-    aroon_osc_sell = IntParameter(-70, -30, default=-50, space='buy', optimize=True)
-    
+    aroon_osc_buy = IntParameter(50, 70, default=68, space='buy', optimize=True)
+    aroon_osc_sell = IntParameter(-70, -50, default=-57, space='buy', optimize=True)
+
     # Entry logic type
-    require_all_conditions = BooleanParameter(default=True, space='buy', optimize=True)
+    require_all_conditions = BooleanParameter(default=False, space='buy', optimize=True)  # Changed to False
     
+    # SHORT-SPECIFIC Hyperopt Parameters
+    short_ma_cross_threshold = IntParameter(10, 15, default=12, space='sell', optimize=True)
+    short_rsi_5m_threshold = IntParameter(55, 70, default=65, space='sell', optimize=True)
+    short_rsi_1h_threshold = IntParameter(50, 65, default=60, space='sell', optimize=True)
+    short_adx_threshold = IntParameter(20, 30, default=25, space='sell', optimize=True)
+    short_aroon_osc = IntParameter(-70, -50, default=-60, space='sell', optimize=True)
+    short_st_min_aligned = IntParameter(2, 3, default=2, space='sell', optimize=True)
+    use_supertrend_short = BooleanParameter(default=True, space='sell', optimize=True)
+    require_all_conditions_short = BooleanParameter(default=True, space='sell', optimize=True)
+
+
+
     # Store for entry indicators
     entry_indicators = {}
     
@@ -102,14 +131,17 @@ class MultiIndicatorStrategy(IStrategy):
         """Initialize strategy with backtesting logger"""
         super().__init__(config)
         
-        # Initialize backtest logger
-        try:
-            self.backtest_logger = BacktestLogger(strategy_name=self.__class__.__name__)
-            logger.info("✅ Backtest logger initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ Backtest logger initialization failed: {e}")
+        # Initialize backtest logger ONLY if not in hyperopt mode
+        if config.get('runmode') != 'hyperopt':
+            try:
+                self.backtest_logger = BacktestLogger(strategy_name=self.__class__.__name__)
+                logger.info(" Backtest logger initialized")
+            except Exception as e:
+                logger.warning(f" Backtest logger initialization failed: {e}")
+                self.backtest_logger = None
+        else:
             self.backtest_logger = None
-    
+            logger.info(" Backtest logger disabled for hyperopt")
     # Plot configuration
     plot_config = {
         'main_plot': {
@@ -120,30 +152,32 @@ class MultiIndicatorStrategy(IStrategy):
         },
         'subplots': {
             "MA Signals": {
-                'buy_signal_count': {'color': 'green', 'type': 'line'},
-                'sell_signal_count': {'color': 'red', 'type': 'line'},
+                #'buy_signal_count': {'color': 'green', 'type': 'line'},
+               # 'sell_signal_count': {'color': 'red', 'type': 'line'},
                 'buy_signal_ma3': {'color': 'lightgreen', 'type': 'line'},
                 'buy_signal_ma11': {'color': 'darkgreen', 'type': 'line'},
             },
             "RSI": {
-                'rsi_5m': {'color': 'blue', 'type': 'line'},
-                'rsi_1h': {'color': 'orange', 'type': 'line'},
+                'rsi_1m': {'color': 'green', 'type': 'line'},
+                #'rsi_1h': {'color': 'red', 'type': 'line'},
+                'rsi_5m_sma': {'color': 'purple', 'type': 'line'},
+                
             },
-            "ADX": {
-                'adx_5m': {'color': 'purple', 'type': 'line'},
-                'plus_di_5m': {'color': 'green', 'type': 'line'},
-                'minus_di_5m': {'color': 'red', 'type': 'line'},
-            },
-            "MACD": {
-                'macd_5m': {'color': 'blue', 'type': 'line'},
-                'macd_signal_5m': {'color': 'orange', 'type': 'line'},
-                'macd_hist_5m': {'color': 'gray', 'type': 'bar'},
-            },
-            "Aroon": {
-                'aroon_up_5m': {'color': 'green', 'type': 'line'},
-                'aroon_down_5m': {'color': 'red', 'type': 'line'},
-                'aroon_osc_5m': {'color': 'blue', 'type': 'line'},
-            },
+           # "ADX": {
+             #   'adx_5m': {'color': 'purple', 'type': 'line'},
+             #   'plus_di_5m': {'color': 'green', 'type': 'line'},
+              #  'minus_di_5m': {'color': 'red', 'type': 'line'},
+          #  },
+            #"MACD": {
+             #   'macd_5m': {'color': 'blue', 'type': 'line'},
+              #  'macd_signal_5m': {'color': 'orange', 'type': 'line'},
+              #  'macd_hist_5m': {'color': 'gray', 'type': 'bar'},
+          #  },
+           # "Aroon": {
+               # 'aroon_up_5m': {'color': 'green', 'type': 'line'},
+               # 'aroon_down_5m': {'color': 'red', 'type': 'line'},
+               # 'aroon_osc_5m': {'color': 'blue', 'type': 'line'},
+           # },
         }
     }
     
@@ -174,6 +208,8 @@ class MultiIndicatorStrategy(IStrategy):
             
             # 3. RSI MULTI-TIMEFRAME
             rsi_data = compute_rsi_multi_tf(df)
+            df['rsi_1m'] = rsi_data['1m']['rsi']
+            df['rsi_1m_sma'] = rsi_data['1m']['rsi_sma']
             df['rsi_5m'] = rsi_data['5m']['rsi']
             df['rsi_5m_sma'] = rsi_data['5m']['rsi_sma']
             
@@ -237,7 +273,6 @@ class MultiIndicatorStrategy(IStrategy):
         """Define entry conditions"""
         conditions_long = []
         conditions_short = []
-        
         dataframe.loc[:, 'enter_long'] = 0
         dataframe.loc[:, 'enter_short'] = 0
         dataframe.loc[:, 'enter_tag'] = ''
@@ -258,17 +293,19 @@ class MultiIndicatorStrategy(IStrategy):
                 (dataframe['st_21_7_direction'] == 1).astype(int)
             )
             st_bullish = st_aligned_count >= self.st_min_aligned.value
-            conditions_long.append(st_bullish)
+          #  conditions_long.append(st_bullish)
         
         rsi_long = (
-            (dataframe['rsi_5m'] > self.rsi_5m_buy_threshold.value) &
-            (dataframe['rsi_1h'] > self.rsi_1h_buy_threshold.value)
-        )
+            (dataframe['rsi_5m'] > 40) #& (dataframe['rsi_5m'] < 58) 
+             &   (dataframe['rsi_1h'] > 50) #& (dataframe['rsi_1h'] < 65)  # ADD THIS - avoid overbought
+            )
         conditions_long.append(rsi_long)
         
-        adx_strong = dataframe['adx_5m'] > self.adx_threshold.value
-        conditions_long.append(adx_strong)
-        
+        adx_strong = (
+        (dataframe['adx_5m'] > self.adx_threshold.value) &
+        (dataframe['plus_di_5m'] > dataframe['minus_di_5m'])  # ADD THIS
+         )
+        conditions_long.append(adx_strong) 
         aroon_long = dataframe['aroon_osc_5m'] > self.aroon_osc_buy.value
         conditions_long.append(aroon_long)
         
@@ -286,40 +323,43 @@ class MultiIndicatorStrategy(IStrategy):
         dataframe.loc[long_entry, 'enter_long'] = 1
         dataframe.loc[long_entry, 'enter_tag'] = 'multi_signal_long'
         
-        # === SHORT ENTRY CONDITIONS ===
         if self.can_short:
             ma_cross_short = (
                 (dataframe['sell_signal_ma3'] > dataframe['sell_signal_ma11']) &
                 (dataframe['sell_signal_ma3'].shift(1) <= dataframe['sell_signal_ma11'].shift(1)) &
-                (dataframe['sell_signal_count'] >= self.sell_ma_cross_threshold.value)
+                (dataframe['sell_signal_count'] >= self.short_ma_cross_threshold.value)  # SHORT param
             )
             conditions_short.append(ma_cross_short)
             
-            if self.use_supertrend.value:
+            if self.use_supertrend_short.value:  # SHORT param
                 st_aligned_count = (
                     (dataframe['st_7_3_direction'] == -1).astype(int) +
                     (dataframe['st_10_2_direction'] == -1).astype(int) +
                     (dataframe['st_21_7_direction'] == -1).astype(int)
                 )
-                st_bearish = st_aligned_count >= self.st_min_aligned.value
+                st_bearish = st_aligned_count >= self.short_st_min_aligned.value  # SHORT param
                 conditions_short.append(st_bearish)
             
             rsi_short = (
-                (dataframe['rsi_5m'] < self.rsi_5m_sell_threshold.value) &
-                (dataframe['rsi_1h'] < self.rsi_1h_sell_threshold.value)
+                (dataframe['rsi_5m'] < self.short_rsi_5m_threshold.value) &  # SHORT param
+                (dataframe['rsi_5m'] > 35) &  # Don't enter in extreme oversold
+                (dataframe['rsi_1h'] < self.short_rsi_1h_threshold.value)    # SHORT param
             )
             conditions_short.append(rsi_short)
             
-            adx_strong_short = dataframe['adx_5m'] > self.adx_threshold.value
+            adx_strong_short = (
+                (dataframe['adx_5m'] > self.short_adx_threshold.value) &  # SHORT param
+                (dataframe['minus_di_5m'] > dataframe['plus_di_5m'])  # Bearish momentum
+            )
             conditions_short.append(adx_strong_short)
             
-            aroon_short = dataframe['aroon_osc_5m'] < self.aroon_osc_sell.value
+            aroon_short = dataframe['aroon_osc_5m'] < self.short_aroon_osc.value  # SHORT param
             conditions_short.append(aroon_short)
             
             macd_short = dataframe['macd_hist_5m'] < 0
             conditions_short.append(macd_short)
             
-            if self.require_all_conditions.value:
+            if self.require_all_conditions_short.value:  # SHORT param
                 short_entry = conditions_short[0]
                 for condition in conditions_short[1:]:
                     short_entry = short_entry & condition
@@ -329,7 +369,6 @@ class MultiIndicatorStrategy(IStrategy):
             
             dataframe.loc[short_entry, 'enter_short'] = 1
             dataframe.loc[short_entry, 'enter_tag'] = 'multi_signal_short'
-        
         return dataframe
     
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
@@ -344,14 +383,14 @@ class MultiIndicatorStrategy(IStrategy):
             (dataframe['sell_signal_ma3'] > dataframe['buy_signal_ma3']) &
             (dataframe['sell_signal_count'] >= self.sell_ma_cross_threshold.value)
         )
-        
-        rsi_overbought = dataframe['rsi_5m'] > 80
+       # rsi_overbought =   (dataframe['rsi_5m'] > 80) 
+        rsi_overbought =  (dataframe['rsi_1h'] > 80) | (dataframe['rsi_5m'] > 80) #| (dataframe['rsi_1m'] > 80 )
         
         macd_cross_down = (
             (dataframe['macd_5m'] < dataframe['macd_signal_5m']) &
             (dataframe['macd_5m'].shift(1) >= dataframe['macd_signal_5m'].shift(1))
         )
-        
+      
         st_flip_bearish = (
             (dataframe['st_7_3_direction'] == -1) &
             (dataframe['st_10_2_direction'] == -1)
@@ -364,7 +403,7 @@ class MultiIndicatorStrategy(IStrategy):
             st_flip_bearish.astype(int)
         )
         
-        exit_long = exit_score_long >= 2
+        exit_long = exit_score_long >= 4
         dataframe.loc[exit_long, 'exit_long'] = 1
         dataframe.loc[exit_long, 'exit_tag'] = 'multi_exit_signal'
         
@@ -433,8 +472,8 @@ class MultiIndicatorStrategy(IStrategy):
                 }
                 
                 # Log to backtest CSV
-                if self.backtest_logger:
-                    self.backtest_logger.log_entry(
+                if self.backtest_logger and hasattr(self.backtest_logger, 'log_entry'):
+                        self.backtest_logger.log_entry(
                         pair=pair,
                         entry_time=current_time,
                         entry_price=rate,
@@ -444,7 +483,7 @@ class MultiIndicatorStrategy(IStrategy):
                 
                 # Send notification if enabled
                 if self.enable_notifications.value:
-                    message = f"🟢 ENTRY {side.upper()}\n"
+                    message = f"* ENTRY {side.upper()}\n"
                     message += f"Pair: {pair}\n"
                     message += f"Price: {rate:.8f}\n"
                     message += f"Time: {current_time}\n"
@@ -459,10 +498,9 @@ class MultiIndicatorStrategy(IStrategy):
             logger.error(f"Error in confirm_trade_entry: {e}")
         
         return True
-    
     def confirm_trade_exit(self, pair: str, trade, order_type: str, amount: float,
-                          rate: float, time_in_force: str, exit_reason: str,
-                          current_time: datetime, **kwargs) -> bool:
+                      rate: float, time_in_force: str, exit_reason: str,
+                      current_time: datetime, **kwargs) -> bool:
         """Log exit and send notifications"""
         try:
             dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
@@ -488,7 +526,7 @@ class MultiIndicatorStrategy(IStrategy):
                     'macd_hist_5m': last_candle.get('macd_hist_5m', 0),
                 }
                 
-                # Log to backtest CSV
+                # Log to backtest CSV (KEEP THIS)
                 if self.backtest_logger:
                     self.backtest_logger.log_exit(
                         pair=pair,
@@ -499,34 +537,36 @@ class MultiIndicatorStrategy(IStrategy):
                         indicators=exit_indicators
                     )
                 
-                # Old CSV logging if enabled
-                if self.enable_csv_logging.value:
-                    trade_data = {
-                        'pair': pair,
-                        'entry_time': entry_data.get('entry_time', trade.open_date_utc),
-                        'exit_time': current_time,
-                        'entry_price': entry_data.get('entry_price', trade.open_rate),
-                        'exit_price': rate,
-                        'side': entry_data.get('side', 'long'),
-                        'profit_ratio': profit_ratio,
-                        'profit_abs': profit_abs,
-                        'exit_reason': exit_reason,
-                        'entry_buy_signal_count': entry_data.get('buy_signal_count', 0),
-                        'entry_sell_signal_count': entry_data.get('sell_signal_count', 0),
-                        'entry_rsi_5m': entry_data.get('rsi_5m', 0),
-                        'entry_rsi_1h': entry_data.get('rsi_1h', 0),
-                        'entry_adx_5m': entry_data.get('adx_5m', 0),
-                        'exit_buy_signal_count': exit_indicators['buy_signal_count'],
-                        'exit_sell_signal_count': exit_indicators['sell_signal_count'],
-                        'exit_rsi_5m': exit_indicators['rsi_5m'],
-                        'exit_rsi_1h': exit_indicators['rsi_1h'],
-                        'exit_adx_5m': exit_indicators['adx_5m'],
-                    }
-                    save_trade_to_csv(trade_data)
+                # ============================================================
+                # COMMENT OUT THIS ENTIRE OLD CSV LOGGING BLOCK:
+                # ============================================================
+                # if self.enable_csv_logging.value:
+                #     trade_data = {
+                #         'pair': pair,
+                #         'entry_time': entry_data.get('entry_time', trade.open_date_utc),
+                #         'exit_time': current_time,
+                #         'entry_price': entry_data.get('entry_price', trade.open_rate),
+                #         'exit_price': rate,
+                #         'side': entry_data.get('side', 'long'),
+                #         'profit_ratio': profit_ratio,
+                #         'profit_abs': profit_abs,
+                #         'exit_reason': exit_reason,
+                #         'entry_buy_signal_count': entry_data.get('buy_signal_count', 0),
+                #         'entry_sell_signal_count': entry_data.get('sell_signal_count', 0),
+                #         'entry_rsi_5m': entry_data.get('rsi_5m', 0),
+                #         'entry_rsi_1h': entry_data.get('rsi_1h', 0),
+                #         'entry_adx_5m': entry_data.get('adx_5m', 0),
+                #         'exit_buy_signal_count': exit_indicators['buy_signal_count'],
+                #         'exit_sell_signal_count': exit_indicators['sell_signal_count'],
+                #         'exit_rsi_5m': exit_indicators['rsi_5m'],
+                #         'exit_rsi_1h': exit_indicators['rsi_1h'],
+                #         'exit_adx_5m': exit_indicators['adx_5m'],
+                #     }
+                #     save_trade_to_csv(trade_data)
                 
-                # Send notification if enabled
+                # Send notification if enabled (KEEP THIS)
                 if self.enable_notifications.value:
-                    emoji = "🟢" if profit_ratio > 0 else "🔴"
+                    emoji = "+++" if profit_ratio > 0 else "---"
                     message = f"{emoji} EXIT {entry_data.get('side', 'LONG').upper()}\n"
                     message += f"Pair: {pair}\n"
                     message += f"Entry: {entry_data.get('entry_price', trade.open_rate):.8f}\n"

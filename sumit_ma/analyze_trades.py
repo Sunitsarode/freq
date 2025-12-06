@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Trade Analysis Script
 Analyzes trades from CSV log file and generates insights
