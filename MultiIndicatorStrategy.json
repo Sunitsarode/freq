@@ -22,21 +22,19 @@
     "buy": {
       "enable_csv_logging": true,
       "enable_notifications": false,
-      "adx_threshold": 22,
-      "aroon_osc_buy": 62,
-      "aroon_osc_sell": -66,
-      "buy_ma_cross_threshold": 10,
-      "require_all_conditions": true,
-      "rsi_1h_buy_threshold": 53,
-      "rsi_1h_sell_threshold": 68,
-      "rsi_5m_buy_threshold": 45,
-      "rsi_5m_sell_threshold": 65,
-      "sell_ma_cross_threshold": 6,
-      "st_min_aligned": 3,
-      "use_supertrend": false
+      "adx_threshold": 23,
+      "aroon_osc_buy": 50,
+      "aroon_osc_sell": -53,
+      "require_all_conditions": false,
+      "rsi_1h_buy_threshold": 54,
+      "rsi_1h_sell_threshold": 69,
+      "rsi_5m_buy_threshold": 38,
+      "rsi_5m_sell_threshold": 70,
+      "signal_threshold": 7,
+      "st_min_aligned": 2,
+      "use_supertrend": true
     },
     "sell": {
-      "enable_csv_logging": true,
       "require_all_conditions_short": false,
       "short_adx_threshold": 24,
       "short_aroon_osc": -53,
@@ -48,5 +46,5 @@
     }
   },
   "ft_stratparam_v": 1,
-  "export_time": "2025-12-04 06:42:54.966143+00:00"
+  "export_time": "2025-12-07 17:40:25.775929+00:00"
 }

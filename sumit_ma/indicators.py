@@ -13,60 +13,84 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 def sumit_ma_signals(df: pd.DataFrame) -> pd.DataFrame:
     """
-    SUMIT MA SIGNAL LOGIC
+    SUMIT MA SIGNAL LOGIC - WITH TRANSITION ZONE
     
-    Counts BUY and SELL signals based on price position relative to 18 MAs
-    (excludes MA 3 High and MA 3 Low)
+    Score range: +20 to -20
     
-    BUY Signal: Price > MA (counts 0-18)
-    SELL Signal: Price < MA (counts 0-18)
+    Logic:
+    1. If price > MA_301: score = +number of MAs above it
+    2. If price < MA_251: score = -number of MAs below it
+    3. If MA_251 < price < MA_301: score = +1 (transition zone - weak buy)
+    4. If MA_301 < price < MA_251: score = -1 (transition zone - weak sell)
     
-    Returns DataFrame with buy_signal_count, sell_signal_count, and their MAs
-    
-    FIXED: Proper .loc indexing to avoid chained assignment warnings
+    MA Order:
+    [MA_3_low, MA_3_high, MA_3, MA_9, MA_15, MA_21, MA_27, MA_31, MA_37, MA_51,
+     MA_65, MA_81, MA_101, MA_121, MA_131, MA_151, MA_171, MA_201, MA_251, MA_301]
     """
     
-    # Calculate OHLC/4 (typical price)
+    # Typical price
     ohlc4 = (df['open'] + df['high'] + df['low'] + df['close']) / 4
     
-    # Define 18 MA periods for OHLC/4 (excluding MA 3 High/Low)
-    ma_periods = [3, 9, 15, 21, 27, 31, 37, 51, 65, 81, 101, 121, 131, 151, 171, 201, 251, 301]
+    # EXACT MA order (20 MAs)
+    ma_list = [
+        ('MA_3_low', talib.SMA(df['low'], timeperiod=3)),
+        ('MA_3_high', talib.SMA(df['high'], timeperiod=3)),
+    ]
     
-    # Calculate all 18 MAs
-    mas = {}
-    for period in ma_periods:
-        mas[f'MA_{period}'] = talib.SMA(ohlc4, timeperiod=period)
+    # Remaining 18 MAs on OHLC/4
+    ma_periods = [3, 9, 15, 21, 27, 31, 37, 51, 65, 81,
+                  101, 121, 131, 151, 171, 201, 251, 301]
+    for p in ma_periods:
+        ma_list.append((f'MA_{p}', talib.SMA(ohlc4, timeperiod=p)))
     
-    # Create result DataFrame with proper initialization
+    # Combine all MA series into 2D numpy array shape: (rows, 20)
+    ma_matrix = np.column_stack([ma.values for _, ma in ma_list])
+    
+    # Price array
+    price = df['close'].values
+    
+    # Extract MA_251 (index 18) and MA_301 (index 19)
+    ma_251 = ma_matrix[:, 18]
+    ma_301 = ma_matrix[:, 19]
+    
+    # Count MAs that price is above
+    mas_above = (price.reshape(-1, 1) > ma_matrix).sum(axis=1)  # 0 to 20
+    
+    # Count MAs that price is below
+    mas_below = (price.reshape(-1, 1) < ma_matrix).sum(axis=1)  # 0 to 20
+    
+    # Initialize signal array
+    signal_count = np.zeros(len(price))
+    
+    # Apply conditions
+    for i in range(len(price)):
+        if price[i] > ma_301[i]:
+            # Price above MA_301 → positive score
+            signal_count[i] = mas_above[i]
+        elif price[i] < ma_251[i]:
+            # Price below MA_251 → negative score
+            signal_count[i] = -mas_below[i]
+        elif ma_251[i] < price[i] < ma_301[i]:
+            # Between MA_251 and MA_301 (MA_251 lower) → weak buy
+            signal_count[i] = 1
+        elif ma_301[i] < price[i] < ma_251[i]:
+            # Between MA_301 and MA_251 (MA_301 lower) → weak sell
+            signal_count[i] = -1
+        else:
+            # Price exactly at MA (edge case)
+            signal_count[i] = 0
+    
+    # Build output DataFrame
     result = pd.DataFrame(index=df.index)
-    result['buy_signal_count'] = 0
-    result['sell_signal_count'] = 0
+    result['signal_count'] = signal_count
     
-    # Vectorized calculation instead of row-by-row loop for better performance
-    current_price = df['close'].values
-    
-    for ma_name, ma_series in mas.items():
-        ma_values = ma_series.values
-        
-        # Count where price > MA (buy signal)
-        buy_mask = (current_price > ma_values) & pd.notna(ma_values)
-        result.loc[buy_mask, 'buy_signal_count'] += 1
-        
-        # Count where price < MA (sell signal)
-        sell_mask = (current_price < ma_values) & pd.notna(ma_values)
-        result.loc[sell_mask, 'sell_signal_count'] += 1
-    
-    # Calculate MA3 and MA11 of signal counts
-    result['buy_signal_ma3'] = talib.SMA(result['buy_signal_count'], timeperiod=3)
-    result['buy_signal_ma11'] = talib.SMA(result['buy_signal_count'], timeperiod=31)
-    result['sell_signal_ma3'] = talib.SMA(result['sell_signal_count'], timeperiod=3)
-    result['sell_signal_ma11'] = talib.SMA(result['sell_signal_count'], timeperiod=11)
+    # Moving averages of the signal
+    result['signal_ma3'] = talib.SMA(result['signal_count'], timeperiod=7)
+    result['signal_ma11'] = talib.SMA(result['signal_count'], timeperiod=21)
     
     return result
-
 
 def compute_supertrend(df: pd.DataFrame, period: int, multiplier: float) -> tuple:
     """

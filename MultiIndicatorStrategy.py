@@ -52,10 +52,10 @@ class MultiIndicatorStrategy(IStrategy):
     process_only_new_candles = True
     
     minimal_roi = {
-    "0": 0.03,    # 5% profit anytime
+    "0": 0.02,    # 5% profit anytime
     "60": 0.025,   # 3% after 1 hour
     "180": 0.02,  # 2% after 3 hours
-    "360": 0.015   # 1% after 6 hours
+    "360": 0.01   # 1% after 6 hours
 }
     
     # Risk management
@@ -86,8 +86,8 @@ class MultiIndicatorStrategy(IStrategy):
     ntfy_topic = 'freqtrade_alerts'
     
    # Hyperopt parameters - Sumit MA Signals
-    buy_ma_cross_threshold = IntParameter(10, 15, default=12, space='buy', optimize=True)
-    sell_ma_cross_threshold = IntParameter(5, 10, default=5, space='buy', optimize=True)
+    
+    signal_threshold = IntParameter(5, 18, default=10, space='buy', optimize=True)
 
     # Hyperopt parameters - SuperTrend
     use_supertrend = BooleanParameter(default=False, space='buy', optimize=True)  # Changed to False
@@ -152,10 +152,9 @@ class MultiIndicatorStrategy(IStrategy):
         },
         'subplots': {
             "MA Signals": {
-                #'buy_signal_count': {'color': 'green', 'type': 'line'},
-               # 'sell_signal_count': {'color': 'red', 'type': 'line'},
-                'buy_signal_ma3': {'color': 'lightgreen', 'type': 'line'},
-                'buy_signal_ma11': {'color': 'darkgreen', 'type': 'line'},
+               # 'signal_count': {'color': 'blue', 'type': 'line'},  # Unified signal
+                'signal_ma3': {'color': 'lightgreen', 'type': 'line'},
+                'signal_ma11': {'color': 'darkgreen', 'type': 'line'},
             },
             "RSI": {
                 'rsi_1m': {'color': 'green', 'type': 'line'},
@@ -250,14 +249,13 @@ class MultiIndicatorStrategy(IStrategy):
             
             # Fill NaN values in critical columns
             fill_columns = [
-                'buy_signal_count', 'sell_signal_count', 
-                'buy_signal_ma3', 'buy_signal_ma11',
-                'sell_signal_ma3', 'sell_signal_ma11',
-                'st_7_3_direction', 'st_10_2_direction', 'st_21_7_direction',
-                'rsi_5m', 'rsi_1h', 'adx_5m', 
-                'aroon_osc_5m', 'macd_hist_5m'
-            ]
-            
+            'signal_count',  # Changed from buy_signal_count, sell_signal_count
+            'signal_ma3', 'signal_ma11',  # Changed from buy_signal_ma3, etc.
+            'st_7_3_direction', 'st_10_2_direction', 'st_21_7_direction',
+            'rsi_5m', 'rsi_1h', 'adx_5m', 
+            'aroon_osc_5m', 'macd_hist_5m'
+        ]
+                    
             for col in fill_columns:
                 if col in df.columns:
                     df[col] = df[col].fillna(0)
@@ -280,12 +278,12 @@ class MultiIndicatorStrategy(IStrategy):
         # === LONG ENTRY CONDITIONS ===
         
         ma_cross_long = (
-            (dataframe['buy_signal_ma3'] > dataframe['buy_signal_ma11']) &
-            (dataframe['buy_signal_ma3'].shift(1) <= dataframe['buy_signal_ma11'].shift(1)) &
-            (dataframe['buy_signal_count'] >= self.buy_ma_cross_threshold.value)
+            (dataframe['signal_ma3'] > dataframe['signal_ma11']) &
+            (dataframe['signal_ma3'].shift(1) <= dataframe['signal_ma11'].shift(1)) &
+            (dataframe['signal_count'] >= self.signal_threshold.value)
         )
         conditions_long.append(ma_cross_long)
-        
+                
         if self.use_supertrend.value:
             st_aligned_count = (
                 (dataframe['st_7_3_direction'] == 1).astype(int) +
@@ -293,7 +291,7 @@ class MultiIndicatorStrategy(IStrategy):
                 (dataframe['st_21_7_direction'] == 1).astype(int)
             )
             st_bullish = st_aligned_count >= self.st_min_aligned.value
-          #  conditions_long.append(st_bullish)
+            conditions_long.append(st_bullish)
         
         rsi_long = (
             (dataframe['rsi_5m'] > 40) #& (dataframe['rsi_5m'] < 58) 
@@ -325,12 +323,12 @@ class MultiIndicatorStrategy(IStrategy):
         
         if self.can_short:
             ma_cross_short = (
-                (dataframe['sell_signal_ma3'] > dataframe['sell_signal_ma11']) &
-                (dataframe['sell_signal_ma3'].shift(1) <= dataframe['sell_signal_ma11'].shift(1)) &
-                (dataframe['sell_signal_count'] >= self.short_ma_cross_threshold.value)  # SHORT param
+                (dataframe['signal_ma3'] < dataframe['signal_ma11']) &  # MA3 crosses BELOW MA11
+                (dataframe['signal_ma3'].shift(1) >= dataframe['signal_ma11'].shift(1)) &
+                (dataframe['signal_count'] <= -self.signal_threshold.value)  # Negative threshold
             )
             conditions_short.append(ma_cross_short)
-            
+                    
             if self.use_supertrend_short.value:  # SHORT param
                 st_aligned_count = (
                     (dataframe['st_7_3_direction'] == -1).astype(int) +
@@ -380,8 +378,8 @@ class MultiIndicatorStrategy(IStrategy):
         # === EXIT LONG ===
         
         ma_reversal_long = (
-            (dataframe['sell_signal_ma3'] > dataframe['buy_signal_ma3']) &
-            (dataframe['sell_signal_count'] >= self.sell_ma_cross_threshold.value)
+            (dataframe['signal_ma3'] < dataframe['signal_ma11']) &  # MA3 crosses below MA11
+            (dataframe['signal_count'] < 0)  # Turned bearish
         )
        # rsi_overbought =   (dataframe['rsi_5m'] > 80) 
         rsi_overbought =  (dataframe['rsi_1h'] > 80) | (dataframe['rsi_5m'] > 80) #| (dataframe['rsi_1m'] > 80 )
@@ -403,15 +401,15 @@ class MultiIndicatorStrategy(IStrategy):
             st_flip_bearish.astype(int)
         )
         
-        exit_long = exit_score_long >= 4
+        exit_long = exit_score_long >= 2
         dataframe.loc[exit_long, 'exit_long'] = 1
         dataframe.loc[exit_long, 'exit_tag'] = 'multi_exit_signal'
         
         # === EXIT SHORT ===
         if self.can_short:
             ma_reversal_short = (
-                (dataframe['buy_signal_ma3'] > dataframe['sell_signal_ma3']) &
-                (dataframe['buy_signal_count'] >= self.buy_ma_cross_threshold.value)
+                (dataframe['signal_ma3'] > dataframe['signal_ma11']) &  # MA3 crosses above MA11
+                (dataframe['signal_count'] > 0)  # Turned bullish
             )
             
             rsi_oversold = dataframe['rsi_5m'] < 20
@@ -450,9 +448,9 @@ class MultiIndicatorStrategy(IStrategy):
                 last_candle = dataframe.iloc[-1]
                 
                 # Prepare indicator dictionary
+                
                 indicators = {
-                    'buy_signal_count': last_candle.get('buy_signal_count', 0),
-                    'sell_signal_count': last_candle.get('sell_signal_count', 0),
+                    'signal_count': last_candle.get('signal_count', 0),  # Changed
                     'rsi_5m': last_candle.get('rsi_5m', 0),
                     'rsi_1h': last_candle.get('rsi_1h', 0),
                     'adx_5m': last_candle.get('adx_5m', 0),
