@@ -149,7 +149,7 @@ class BacktestLogger:
                 'entry_st_7_3_direction': entry_data['entry_indicators'].get('st_7_3_direction', 0),
                 'entry_st_10_2_direction': entry_data['entry_indicators'].get('st_10_2_direction', 0),
                 'entry_st_21_7_direction': entry_data['entry_indicators'].get('st_21_7_direction', 0),
-                'entry_aroon_osc_5m': f"{entry_data['entry_indicators'].get('aroon_osc_5m', 0):.2f}",
+                #'entry_aroon_osc_5m': f"{entry_data['entry_indicators'].get('aroon_osc_5m', 0):.2f}",
                 'entry_macd_hist_5m': f"{entry_data['entry_indicators'].get('macd_hist_5m', 0):.2f}",
                 
                 # Exit indicators
@@ -161,7 +161,7 @@ class BacktestLogger:
                 'exit_st_7_3_direction': indicators.get('st_7_3_direction', 0),
                 'exit_st_10_2_direction': indicators.get('st_10_2_direction', 0),
                 'exit_st_21_7_direction': indicators.get('st_21_7_direction', 0),
-                'exit_aroon_osc_5m': f"{indicators.get('aroon_osc_5m', 0):.2f}",
+                #'exit_aroon_osc_5m': f"{indicators.get('aroon_osc_5m', 0):.2f}",
                 'exit_macd_hist_5m': f"{indicators.get('macd_hist_5m', 0):.2f}",
             }
             

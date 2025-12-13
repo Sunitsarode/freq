@@ -12,86 +12,65 @@ from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)
-
-def sumit_ma_signals(df: pd.DataFrame) -> pd.DataFrame:
+def sumit_ma_signals(df: pd.DataFrame, sma1_period: int = 21, sma2_period: int = 51, 
+                     normalize_window: int = 100) -> pd.DataFrame:
     """
-    SUMIT MA SIGNAL LOGIC - WITH TRANSITION ZONE
+    SUMIT MA-AVG SIGNAL LOGIC (Indicator Only)
     
-    Score range: +20 to -20
+    Calculations:
+    1. MA3, MA51, MA201, MA301 on OHLC/4
+    2. indicator_value1 = MA3 - MA301
+    3. indicator_value2 = MA201 - MA301
+    4. indicator_sma1 = SMA(indicator_value1, 21)
+    5. indicator_sma2 = SMA(indicator_value1, 51)
+    6. signal_count normalized to 0-100 range (like RSI)
     
-    Logic:
-    1. If price > MA_301: score = +number of MAs above it
-    2. If price < MA_251: score = -number of MAs below it
-    3. If MA_251 < price < MA_301: score = +1 (transition zone - weak buy)
-    4. If MA_301 < price < MA_251: score = -1 (transition zone - weak sell)
-    
-    MA Order:
-    [MA_3_low, MA_3_high, MA_3, MA_9, MA_15, MA_21, MA_27, MA_31, MA_37, MA_51,
-     MA_65, MA_81, MA_101, MA_121, MA_131, MA_151, MA_171, MA_201, MA_251, MA_301]
+    Returns all calculated values for strategy to use
     """
     
-    # Typical price
+    # Calculate typical price (OHLC/4)
     ohlc4 = (df['open'] + df['high'] + df['low'] + df['close']) / 4
     
-    # EXACT MA order (20 MAs)
-    ma_list = [
-        ('MA_3_low', talib.SMA(df['low'], timeperiod=3)),
-        ('MA_3_high', talib.SMA(df['high'], timeperiod=3)),
-    ]
+    # Calculate MAs
+    ma3 = talib.SMA(ohlc4, timeperiod=3)
+    ma51 = talib.SMA(ohlc4, timeperiod=51)
+    ma201 = talib.SMA(ohlc4, timeperiod=201)
+    ma301 = talib.SMA(ohlc4, timeperiod=301)
     
-    # Remaining 18 MAs on OHLC/4
-    ma_periods = [3, 9, 15, 21, 27, 31, 37, 51, 65, 81,
-                  101, 121, 131, 151, 171, 201, 251, 301]
-    for p in ma_periods:
-        ma_list.append((f'MA_{p}', talib.SMA(ohlc4, timeperiod=p)))
+    # Calculate indicator values
+    indicator_value1 = ma3 - ma301
+    indicator_value2 = ma201 - ma301
     
-    # Combine all MA series into 2D numpy array shape: (rows, 20)
-    ma_matrix = np.column_stack([ma.values for _, ma in ma_list])
+    # Calculate SMAs of indicator_value1
+    indicator_sma1 = talib.SMA(indicator_value1, timeperiod=sma1_period)
+    indicator_sma2 = talib.SMA(indicator_value1, timeperiod=sma2_period)
     
-    # Price array
-    price = df['close'].values
+    # Normalize indicator_value1 to 0-100 range (like RSI)
+    rolling_min = indicator_value1.rolling(window=normalize_window, min_periods=1).min()
+    rolling_max = indicator_value1.rolling(window=normalize_window, min_periods=1).max()
     
-    # Extract MA_251 (index 18) and MA_301 (index 19)
-    ma_251 = ma_matrix[:, 18]
-    ma_301 = ma_matrix[:, 19]
+    # Avoid division by zero
+    range_diff = rolling_max - rolling_min
+    range_diff = range_diff.replace(0, 1)  # Replace 0 with 1 to avoid division by zero
     
-    # Count MAs that price is above
-    mas_above = (price.reshape(-1, 1) > ma_matrix).sum(axis=1)  # 0 to 20
-    
-    # Count MAs that price is below
-    mas_below = (price.reshape(-1, 1) < ma_matrix).sum(axis=1)  # 0 to 20
-    
-    # Initialize signal array
-    signal_count = np.zeros(len(price))
-    
-    # Apply conditions
-    for i in range(len(price)):
-        if price[i] > ma_301[i]:
-            # Price above MA_301 → positive score
-            signal_count[i] = mas_above[i]
-        elif price[i] < ma_251[i]:
-            # Price below MA_251 → negative score
-            signal_count[i] = -mas_below[i]
-        elif ma_251[i] < price[i] < ma_301[i]:
-            # Between MA_251 and MA_301 (MA_251 lower) → weak buy
-            signal_count[i] = 1
-        elif ma_301[i] < price[i] < ma_251[i]:
-            # Between MA_301 and MA_251 (MA_301 lower) → weak sell
-            signal_count[i] = -1
-        else:
-            # Price exactly at MA (edge case)
-            signal_count[i] = 0
+    # Normalize to 0-100
+    signal_count_normalized = ((indicator_value1 - rolling_min) / range_diff) * 100
+    signal_count_normalized = signal_count_normalized.fillna(50)  # Fill NaN with neutral 50
+    signal_count_normalized = signal_count_normalized.clip(0, 100)  # Ensure 0-100 range
     
     # Build output DataFrame
     result = pd.DataFrame(index=df.index)
-    result['signal_count'] = signal_count
     
-    # Moving averages of the signal
-    result['signal_ma3'] = talib.SMA(result['signal_count'], timeperiod=7)
-    result['signal_ma11'] = talib.SMA(result['signal_count'], timeperiod=21)
+    # Main indicator values (keeping naming for strategy compatibility)
+    result['signal_count'] = signal_count_normalized  # Normalized to 0-100
+    result['signal_ma3'] = indicator_sma1             # SMA(21) of indicator_value1
+    result['signal_ma11'] = indicator_sma2            # SMA(51) of indicator_value1
+    result['indicator_value2'] = indicator_value2     # MA201 - MA301
+    
+    # Optional: Keep raw value for reference
+    result['signal_count_raw'] = indicator_value1
     
     return result
-
 def compute_supertrend(df: pd.DataFrame, period: int, multiplier: float) -> tuple:
     """
     Calculate SuperTrend indicator
@@ -214,46 +193,107 @@ def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
         return df.copy()
 
 
-def compute_rsi_multi_tf(df_5m: pd.DataFrame, rsi_period: int = 11, sma_period: int = 7) -> Dict:
+def compute_rsi_multi_tf(df_1m: pd.DataFrame, rsi_period: int = 14, sma_period: int = 3) -> Dict:
     """
-    Compute RSI for multiple timeframes using proper resampling
+    Compute Weighted Average RSI from multiple timeframes
     
-    FIXED: Simplified resampling that works with Freqtrade's structure
+    Logic (matching Pine Script):
+    1. Calculate RSI for 1m, 5m, 1h timeframes
+    2. Weighted average: avg_rsi = rsi_1m*0.3 + rsi_5m*0.5 + rsi_1h*0.2
+    3. Calculate SMA(3) and SMA(11) of avg_rsi
+    
+    Returns:
+    - rsi_1m, rsi_5m, rsi_1h: Individual RSI values
+    - avg_rsi: Weighted average RSI
+    - avg_rsi_sma: SMA(3) of weighted avg
+    - avg_rsi_sma11: SMA(11) of weighted avg
     """
     
-    def calc_rsi(df):
+    def calc_rsi(df, period):
+        """Calculate RSI for a dataframe"""
         df = df.copy()
-        df["avg_price"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
-        df["rsi"] = talib.RSI(df["avg_price"], timeperiod=rsi_period)
-        df["rsi_sma"] = talib.SMA(df["rsi"], timeperiod=sma_period)
+        df['rsi'] = talib.RSI(df['close'], timeperiod=period)
         return df
     
-    # 5-minute RSI (base timeframe)
-    df_5m_calc = calc_rsi(df_5m.copy())
+    # 1-minute RSI (base timeframe)
+    df_1m_calc = calc_rsi(df_1m.copy(), rsi_period)
     
-    # 1-hour resampling - simplified approach
+    # Resample to 5-minute
     try:
-        df_1h = resample_to_interval(df_5m, "1h")
-        
-        if len(df_1h) > rsi_period:
-            df_1h = calc_rsi(df_1h)
+        df_5m = resample_to_interval(df_1m, "5min")
+        if len(df_5m) > rsi_period:
+            df_5m = calc_rsi(df_5m, rsi_period)
         else:
-            logger.warning("Not enough 1h data after resampling, using 5m as fallback")
-            df_1h = df_5m_calc.copy()
-            
+            logger.warning("Not enough 5m data, using 1m as fallback")
+            df_5m = df_1m_calc.copy()
     except Exception as e:
-        logger.warning(f"1h resampling failed: {e}, using 5m data as fallback")
-        df_1h = df_5m_calc.copy()
+        logger.warning(f"5m resampling failed: {e}, using 1m as fallback")
+        df_5m = df_1m_calc.copy()
     
-    # For 1m, use 5m data (limitation of working with 5m timeframe)
-    df_1m = df_5m_calc.copy()
+    # Resample to 1-hour
+    try:
+        df_1h = resample_to_interval(df_1m, "1h")
+        if len(df_1h) > rsi_period:
+            df_1h = calc_rsi(df_1h, rsi_period)
+        else:
+            logger.warning("Not enough 1h data, using 5m as fallback")
+            df_1h = df_5m.copy()
+    except Exception as e:
+        logger.warning(f"1h resampling failed: {e}, using 5m as fallback")
+        df_1h = df_5m.copy()
     
+    # Merge 5m and 1h RSI back to 1m timeframe (forward fill)
+    result_df = df_1m_calc.copy()
+    
+    # Merge 5m RSI
+    if 'date' in result_df.columns and 'date' in df_5m.columns:
+        result_df = result_df.merge(
+            df_5m[['date', 'rsi']].rename(columns={'rsi': 'rsi_5m'}),
+            on='date',
+            how='left'
+        )
+        result_df['rsi_5m'] = result_df['rsi_5m'].ffill().fillna(50)
+    else:
+        result_df['rsi_5m'] = df_5m['rsi'].reindex(result_df.index, method='ffill').fillna(50)
+    
+    # Merge 1h RSI
+    if 'date' in result_df.columns and 'date' in df_1h.columns:
+        result_df = result_df.merge(
+            df_1h[['date', 'rsi']].rename(columns={'rsi': 'rsi_1h'}),
+            on='date',
+            how='left'
+        )
+        result_df['rsi_1h'] = result_df['rsi_1h'].ffill().fillna(50)
+    else:
+        result_df['rsi_1h'] = df_1h['rsi'].reindex(result_df.index, method='ffill').fillna(50)
+    
+    # Rename 1m RSI
+    result_df['rsi_1m'] = result_df['rsi']
+    
+    # Calculate weighted average RSI: 0.3*rsi_1m + 0.5*rsi_5m + 0.2*rsi_1h
+    result_df['avg_rsi'] = (
+        result_df['rsi_1m'] * 0.3 + 
+        result_df['rsi_5m'] * 0.5 + 
+        result_df['rsi_1h'] * 0.2
+    )
+    
+    # Calculate SMAs of average RSI
+    result_df['avg_rsi_sma'] = talib.SMA(result_df['avg_rsi'], timeperiod=sma_period)  # SMA(3)
+    result_df['avg_rsi_sma11'] = talib.SMA(result_df['avg_rsi'], timeperiod=11)        # SMA(11)
+    
+    # Return dictionary with all RSI data
     return {
-        "1m": df_1m,
-        "5m": df_5m_calc,
-        "1h": df_1h
+        "1m": result_df[['rsi_1m', 'avg_rsi', 'avg_rsi_sma', 'avg_rsi_sma11']].rename(
+            columns={'rsi_1m': 'rsi', 'avg_rsi_sma': 'rsi_sma'}
+        ),
+        "5m": result_df[['rsi_5m', 'avg_rsi', 'avg_rsi_sma', 'avg_rsi_sma11']].rename(
+            columns={'rsi_5m': 'rsi', 'avg_rsi_sma': 'rsi_sma'}
+        ),
+        "1h": result_df[['rsi_1h', 'avg_rsi', 'avg_rsi_sma', 'avg_rsi_sma11']].rename(
+            columns={'rsi_1h': 'rsi', 'avg_rsi_sma': 'rsi_sma'}
+        ),
+        "avg": result_df[['avg_rsi', 'avg_rsi_sma', 'avg_rsi_sma11']]
     }
-
 
 def compute_aroon_multi_tf(df_5m: pd.DataFrame, period: int = 14) -> Dict:
     """
