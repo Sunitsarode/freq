@@ -34,7 +34,7 @@ from backtest_logger import BacktestLogger
 logger = logging.getLogger(__name__)
 
 
-class SumitOptimumBUY(IStrategy):
+class SumitOptimumBUY5m(IStrategy):
     """
     Long-only strategy with FreqAI integration
     Uses weighted scoring system for entry/exit
@@ -48,14 +48,14 @@ class SumitOptimumBUY(IStrategy):
     
     # ROI settings
     minimal_roi = {
-        "0": 0.02
-    }
+    "0": 0.05
+}
     
     # Risk management
-    stoploss = -0.02
+    stoploss = -0.05
     trailing_stop = True
     trailing_stop_positive = 0.01
-    trailing_stop_positive_offset = 0.04
+    trailing_stop_positive_offset = 0.03
     trailing_only_offset_is_reached = True
     
     # Trading mode
@@ -103,6 +103,9 @@ class SumitOptimumBUY(IStrategy):
     use_freqai = BooleanParameter(default=False, space='buy', optimize=False)
     freqai_threshold = DecimalParameter(0.5, 0.9, default=0.7, space='buy', optimize=False)
     
+    # CSV Logging control
+    create_backtest_csv = BooleanParameter(default=True, space='buy', optimize=False)
+    
     # Store for entry indicators
     entry_indicators = {}
     
@@ -143,6 +146,10 @@ class SumitOptimumBUY(IStrategy):
             },
             "ADX": {
                 'adx_5m': {'color': 'purple', 'type': 'line'},
+            },
+            "Entry/Exit Score": {
+                'entry_score': {'color': 'green', 'type': 'line'},
+                'exit_score': {'color': 'red', 'type': 'line'},
             },
         }
     }
@@ -240,8 +247,8 @@ class SumitOptimumBUY(IStrategy):
 
             # Condition 3: MA3 < MA11 < indicator_value2
             sma_trend_cond = (
-                (dataframe['signal_ma3'] < dataframe['signal_ma11']) &
-                (dataframe['signal_ma11'] < dataframe['indicator_value2'])
+                (dataframe['signal_ma3'] < dataframe['signal_ma11']) 
+                & (dataframe['signal_ma11'] < dataframe['indicator_value2'])
             )
             dataframe['entry_score']  += sma_trend_cond.astype(int)
 
@@ -359,45 +366,27 @@ class SumitOptimumBUY(IStrategy):
         dataframe.loc[long_exit, 'exit_tag'] = 'sumit_exit'
         
         return dataframe
+    
     def confirm_trade_entry(self, pair: str, order_type: str, amount: float, rate: float,
-                       time_in_force: str, current_time: datetime, entry_tag: Optional[str],
-                       side: str, **kwargs) -> bool:
+                           time_in_force: str, current_time: datetime, entry_tag: Optional[str],
+                           side: str, **kwargs) -> bool:
         """Store entry indicators and log to backtest CSV"""
         try:
             dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
             
             if len(dataframe) > 0:
-                last = dataframe.iloc[-1]
-
+                last_candle = dataframe.iloc[-1]
+                
                 indicators = {
-                    # === SCORE RELATED INDICATORS ===
-                    'signal_ma3': last.get('signal_ma3', 0),
-                    'signal_ma11': last.get('signal_ma11', 0),
-                    'indicator_value2': last.get('indicator_value2', 0),
-
-                    # === RSI ===
-                    'avg_rsi': last.get('avg_rsi', 0),
-                    'avg_rsi_sma': last.get('avg_rsi_sma', 0),
-
-                    # === ADX ===
-                    'adx_5m': last.get('adx_5m', 0),
-                    'plus_di_5m': last.get('plus_di_5m', 0),
-                    'minus_di_5m': last.get('minus_di_5m', 0),
-
-                    # === SUPERTREND ===
-                    'st_7_3_direction': last.get('st_7_3_direction', 0),
-                    'st_10_2_direction': last.get('st_10_2_direction', 0),
-                    'st_21_7_direction': last.get('st_21_7_direction', 0),
-
-                    # === MACD ===
-                    'macd_hist_5m': last.get('macd_hist_5m', 0),
-                    'macd_5m': last.get('macd_5m', 0),
-                    'macd_signal_5m': last.get('macd_signal_5m', 0),
-
-                    # === Summary ===
-                    'signal_count': dataframe['entry_score'] //last.get('signal_count', 0),
+                    'signal_count': last_candle.get('signal_count', 0),
+                    'avg_rsi': last_candle.get('avg_rsi', 0),
+                    'adx_5m': last_candle.get('adx_5m', 0),
+                    'st_7_3_direction': last_candle.get('st_7_3_direction', 0),
+                    'st_10_2_direction': last_candle.get('st_10_2_direction', 0),
+                    'st_21_7_direction': last_candle.get('st_21_7_direction', 0),
+                    'macd_hist_5m': last_candle.get('macd_hist_5m', 0),
                 }
-
+                
                 self.entry_indicators[pair] = {
                     'entry_time': current_time,
                     'entry_price': rate,
@@ -413,52 +402,34 @@ class SumitOptimumBUY(IStrategy):
                         side=side,
                         indicators=indicators
                     )
-
+        
         except Exception as e:
             logger.error(f"Error in confirm_trade_entry: {e}")
         
         return True
     
     def confirm_trade_exit(self, pair: str, trade, order_type: str, amount: float,
-                      rate: float, time_in_force: str, exit_reason: str,
-                      current_time: datetime, **kwargs) -> bool:
+                          rate: float, time_in_force: str, exit_reason: str,
+                          current_time: datetime, **kwargs) -> bool:
         """Log exit to backtest CSV"""
         try:
             dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
             
             if len(dataframe) > 0:
-                last = dataframe.iloc[-1]
+                last_candle = dataframe.iloc[-1]
+                
                 profit_ratio = trade.calc_profit_ratio(rate)
-
+                
                 exit_indicators = {
-                    # === SCORE RELATED ===
-                    'signal_ma3': last.get('signal_ma3', 0),
-                    'signal_ma11': last.get('signal_ma11', 0),
-                    'indicator_value2': last.get('indicator_value2', 0),
-
-                    # === RSI ===
-                    'avg_rsi': last.get('avg_rsi', 0),
-                    'avg_rsi_sma': last.get('avg_rsi_sma', 0),
-
-                    # === ADX ===
-                    'adx_5m': last.get('adx_5m', 0),
-                    'plus_di_5m': last.get('plus_di_5m', 0),
-                    'minus_di_5m': last.get('minus_di_5m', 0),
-
-                    # === SUPERTREND ===
-                    'st_7_3_direction': last.get('st_7_3_direction', 0),
-                    'st_10_2_direction': last.get('st_10_2_direction', 0),
-                    'st_21_7_direction': last.get('st_21_7_direction', 0),
-
-                    # === MACD ===
-                    'macd_hist_5m': last.get('macd_hist_5m', 0),
-                    'macd_5m': last.get('macd_5m', 0),
-                    'macd_signal_5m': last.get('macd_signal_5m', 0),
-
-                    # === Summary indicator ===
-                    'signal_count': dataframe['exit_score'],
+                    'signal_count': last_candle.get('signal_count', 0),
+                    'avg_rsi': last_candle.get('avg_rsi', 0),
+                    'adx_5m': last_candle.get('adx_5m', 0),
+                    'st_7_3_direction': last_candle.get('st_7_3_direction', 0),
+                    'st_10_2_direction': last_candle.get('st_10_2_direction', 0),
+                    'st_21_7_direction': last_candle.get('st_21_7_direction', 0),
+                    'macd_hist_5m': last_candle.get('macd_hist_5m', 0),
                 }
-
+                
                 if self.backtest_logger:
                     self.backtest_logger.log_exit(
                         pair=pair,
@@ -471,9 +442,8 @@ class SumitOptimumBUY(IStrategy):
                 
                 if pair in self.entry_indicators:
                     del self.entry_indicators[pair]
-
+        
         except Exception as e:
             logger.error(f"Error in confirm_trade_exit: {e}")
         
         return True
-

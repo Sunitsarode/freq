@@ -1,0 +1,45 @@
+{
+  "strategy_name": "SumitOptimumBUY5m",
+  "params": {
+    "roi": {
+      "0": 0.05
+    },
+    "stoploss": {
+      "stoploss": -0.05
+    },
+    "trailing": {
+      "trailing_stop": true,
+      "trailing_stop_positive": 0.01,
+      "trailing_stop_positive_offset": 0.03,
+      "trailing_only_offset_is_reached": true
+    },
+    "max_open_trades": {
+      "max_open_trades": 1
+    },
+    "buy": {
+      "create_backtest_csv": true,
+      "freqai_threshold": 0.7,
+      "use_freqai": false,
+      "adx_threshold": 31,
+      "adx_weight": 3,
+      "macd_weight": 2,
+      "min_entry_score": 7,
+      "min_exit_score": 8,
+      "rsi_buy_threshold": 50,
+      "rsi_sell_threshold": 65,
+      "rsi_weight": 3,
+      "st_min_aligned": 3,
+      "st_weight": 3,
+      "sumit_ma_buy_threshold": 0.312,
+      "sumit_ma_sell_threshold": 87.595,
+      "sumit_ma_weight": 3,
+      "use_adx": true,
+      "use_macd": false,
+      "use_rsi": true,
+      "use_sumit_ma": true,
+      "use_supertrend": true
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2025-12-14 10:24:00.595983+00:00"
+}
